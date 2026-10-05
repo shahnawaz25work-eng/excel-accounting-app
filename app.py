@@ -22,7 +22,7 @@ spreadsheet = client.open_by_key(SPREADSHEET_ID)
 # Configure Streamlit Page Layout
 st.set_page_config(page_title="Accounting Dashboard", layout="centered")
 
-# Custom CSS matching exact UI screenshot colors
+# Custom CSS matching target UI colors
 st.markdown("""
     <style>
     .main-title {
@@ -78,10 +78,12 @@ st.markdown("""
 # Title Header
 st.markdown('<div class="main-title">Welcome Rahmat Sir</div>', unsafe_allow_html=True)
 
-# Fetch available worksheets/registers
+# 1. Fetch Worksheets & Setup Session State
 all_worksheets = [ws.title for ws in spreadsheet.worksheets()]
+if "active_view" not in st.session_state:
+    st.session_state.active_view = "LEDGER"
 
-# Account Register Select Box
+# 2. Account Register Select Box
 p_col1, p_col2 = st.columns([1, 1])
 with p_col1:
     selected_sheet = st.selectbox(
@@ -91,22 +93,18 @@ with p_col1:
         label_visibility="collapsed"
     )
 
-# Load data from the selected worksheet
+# 3. Load Sheet Data
 worksheet = spreadsheet.worksheet(selected_sheet)
 data = worksheet.get_all_records()
 df = pd.DataFrame(data) if data else pd.DataFrame(columns=["Customer_Name", "Debit", "Credit"])
-
-# Normalize column names in dataframe
 df.columns = [str(col).strip() for col in df.columns]
 
-# Extract existing Customer/Ledger names from data for dropdown
+# 4. Extract Existing Customer Names for Dropdown
 existing_customers = []
 if "Customer_Name" in df.columns:
     existing_customers = [str(name).strip() for name in df["Customer_Name"].dropna().unique() if str(name).strip()]
 
 customer_options = ["-- Select Existing Customer --", "➕ Create New Customer"] + existing_customers
-
-# Customer Selection Dropdown
 selected_customer_option = st.selectbox("Customer Name Dropdown", customer_options, label_visibility="collapsed")
 
 if selected_customer_option == "➕ Create New Customer":
@@ -116,22 +114,21 @@ elif selected_customer_option != "-- Select Existing Customer --":
 else:
     customer_name = ""
 
-# Filter records by selected Customer/Ledger Name
+# 5. Filter Data and Compute Totals
 if customer_name and "Customer_Name" in df.columns:
     filtered_df = df[df["Customer_Name"].astype(str).str.strip().str.lower() == customer_name.strip().lower()]
 else:
     filtered_df = df
 
-# Compute Debit, Credit & Running Balance
 total_debit = pd.to_numeric(filtered_df["Debit"], errors="coerce").sum() if "Debit" in filtered_df.columns else 0.0
 total_credit = pd.to_numeric(filtered_df["Credit"], errors="coerce").sum() if "Credit" in filtered_df.columns else 0.0
 running_balance = total_credit - total_debit
 
-# Place Balance metric in right column
+# Place Balance metric next to Account Register dropdown
 with p_col2:
     st.markdown(f'<div class="metric-box-balance">₹ {running_balance:,.2f}</div>', unsafe_allow_html=True)
 
-# Metrics Row: Total Debit, Total Credit, Net Balance
+# Metrics Cards Row
 m_col1, m_col2, m_col3 = st.columns(3)
 with m_col1:
     st.markdown(f'<div class="metric-box-debit">Total Debit<br>₹ {total_debit:,.2f}</div>', unsafe_allow_html=True)
@@ -142,22 +139,21 @@ with m_col3:
 
 st.write("")
 
-# Unique Code & Date Row
+# 6. Additional Entry Form Fields
 c1, c2 = st.columns([1, 1])
 with c1:
     unique_code = st.text_input("Unique Code", placeholder="Unique Code", label_visibility="collapsed")
 with c2:
     entry_date = st.date_input("Date", datetime.now(), label_visibility="collapsed")
 
-# Phone Number & Description
 phone_number = st.text_input("Phone Number", placeholder="Phone Number", label_visibility="collapsed")
 description = st.text_input("Description", placeholder="Description", label_visibility="collapsed")
 
 st.write("")
 
-# Amount Debit & Amount Credit Row
+# 7. Amount Inputs (Defined HERE before SAVE ENTRY runs)
 a_col1, a_col2 = st.columns([1, 1])
 with a_col1:
     amount_debit = st.number_input("Amount Debit", min_value=0.0, step=0.01, value=0.0)
 with a_col2:
-    amount_
+    amount_credit = st.number_input("Amount Credit", min
