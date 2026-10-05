@@ -7,23 +7,20 @@ SPREADSHEET_ID = "1weNOVPKJk4UnCEufm8Sma_eFY5F6iYVKfCReRjORsuc"
 
 @st.cache_resource
 def get_gspread_client():
-    # Convert st.secrets to a plain Python dictionary
+    # Retrieve secrets dictionary
     creds_dict = dict(st.secrets["gcp_service_account"])
     
-    # Clean and replace double backslashes and escaped newlines
+    # Fix string backslashes and force clean newlines for RSA PEM key
     if "private_key" in creds_dict:
-        key = creds_dict["private_key"]
-        key = key.replace("\\n", "\n").replace('\\\\n', '\n')
+        key = str(creds_dict["private_key"])
+        # Replace escaped literal backslashes and escaped n's
+        key = key.replace("\\\\n", "\n").replace("\\n", "\n")
         creds_dict["private_key"] = key
         
     return gspread.service_account_from_dict(creds_dict)
 
 client = get_gspread_client()
 spreadsheet = client.open_by_key(SPREADSHEET_ID)
-
-# Fetch all worksheet names
-all_worksheets = [ws.title for ws in spreadsheet.worksheets()]
-
 st.set_page_config(page_title="Multi-User Accounting Software", layout="wide")
 st.title("📊 Online Accounting Software (Google Sheets Sync)")
 
