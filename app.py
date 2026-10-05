@@ -3,24 +3,29 @@ import pandas as pd
 from datetime import datetime
 import gspread
 
+# Spreadsheet ID from your Google Sheet URL
 SPREADSHEET_ID = "1weNOVPKJk4UnCEufm8Sma_eFY5F6iYVKfCReRjORsuc"
 
 @st.cache_resource
 def get_gspread_client():
-    # Retrieve secrets dictionary
+    # Retrieve secrets dictionary configured in Streamlit Cloud
     creds_dict = dict(st.secrets["gcp_service_account"])
     
-    # Fix string backslashes and force clean newlines for RSA PEM key
+    # Clean and replace escaped newlines to avoid RSASigner errors
     if "private_key" in creds_dict:
         key = str(creds_dict["private_key"])
-        # Replace escaped literal backslashes and escaped n's
         key = key.replace("\\\\n", "\n").replace("\\n", "\n")
         creds_dict["private_key"] = key
         
     return gspread.service_account_from_dict(creds_dict)
 
+# Initialize connection
 client = get_gspread_client()
 spreadsheet = client.open_by_key(SPREADSHEET_ID)
+
+# Get all register sheets
+all_worksheets = [ws.title for ws in spreadsheet.worksheets()]
+
 st.set_page_config(page_title="Multi-User Accounting Software", layout="wide")
 st.title("📊 Online Accounting Software (Google Sheets Sync)")
 
@@ -28,7 +33,7 @@ st.title("📊 Online Accounting Software (Google Sheets Sync)")
 st.sidebar.header("Navigation")
 sheet_choice = st.sidebar.selectbox("Select Register/Sheet", all_worksheets)
 
-# Create a new worksheet/register
+# Create a new sheet/register
 with st.sidebar.expander("➕ Add New Register / Bank Account"):
     new_sheet_name = st.text_input("New Register Name").strip()
     if st.button("Create Register"):
@@ -46,7 +51,7 @@ with st.sidebar.expander("➕ Add New Register / Bank Account"):
 st.header(f"Register: `{sheet_choice}`")
 worksheet = spreadsheet.worksheet(sheet_choice)
 
-# Form to input new entries
+# Input Form
 with st.form("transaction_form", clear_on_submit=True):
     st.subheader("Add New Entry")
     col1, col2, col3 = st.columns(3)
@@ -67,6 +72,7 @@ with st.form("transaction_form", clear_on_submit=True):
         
     submitted = st.form_submit_button("Record Entry")
 
+# Save Entry to Google Sheets
 if submitted:
     new_row = [
         datetime.now().strftime("%Y%m%d%H%M%S"),
@@ -80,9 +86,9 @@ if submitted:
         narration
     ]
     worksheet.append_row(new_row)
-    st.success(f"Entry recorded directly in Google Sheets under `{sheet_choice}`!")
+    st.success(f"Entry recorded in Google Sheets under `{sheet_choice}`!")
 
-# Display current entries
+# Display Data Table
 col_title, col_refresh = st.columns([4, 1])
 with col_title:
     st.subheader("Current Register Entries")
