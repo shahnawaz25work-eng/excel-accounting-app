@@ -22,7 +22,7 @@ spreadsheet = client.open_by_key(SPREADSHEET_ID)
 # Configure Streamlit Page Layout
 st.set_page_config(page_title="Accounting Dashboard", layout="centered")
 
-# Custom CSS for UI styling matching the screenshot
+# Custom CSS matching exact UI screenshot colors
 st.markdown("""
     <style>
     .main-title {
@@ -59,45 +59,68 @@ st.markdown("""
         font-weight: bold;
         font-size: 18px;
     }
+    /* Primary Green Save Button */
+    div.stButton > button[kind="primary"] {
+        background-color: #28a745 !important;
+        color: white !important;
+        border-radius: 8px;
+        font-weight: bold;
+        height: 48px;
+        border: none;
+    }
+    /* Secondary Action Buttons */
     div.stButton > button {
         border-radius: 8px;
         font-weight: bold;
-        height: 45px;
+        height: 42px;
     }
     </style>
 """, unsafe_allow_html=True)
 
-# App Title Header
+# Title Header
 st.markdown('<div class="main-title">Welcome Rahmat Sir</div>', unsafe_allow_html=True)
 
-# Fetch all available register/account sheets
+# 1. Fetch available worksheets first
 all_worksheets = [ws.title for ws in spreadsheet.worksheets()]
 
-# Initialize active view state
+# Initialize state view
 if "active_view" not in st.session_state:
     st.session_state.active_view = "LEDGER"
 
-# Customer Name Input
+# 2. Input Fields
 customer_name = st.text_input("Customer Name", placeholder="Customer Name", label_visibility="collapsed")
 
-# Row 1: Select sheet to calculate current register metrics
-default_sheet = all_worksheets[0] if all_worksheets else "Sheet1"
-worksheet = spreadsheet.worksheet(default_sheet)
+# 3. Account Register Select Box (Placed where CASH was in screenshot)
+p_col1, p_col2 = st.columns([1, 1])
+with p_col1:
+    selected_sheet = st.selectbox(
+        "Account Register", 
+        all_worksheets, 
+        key="account_register_select", 
+        label_visibility="collapsed"
+    )
+
+# Load data from the selected worksheet
+worksheet = spreadsheet.worksheet(selected_sheet)
 data = worksheet.get_all_records()
 df = pd.DataFrame(data) if data else pd.DataFrame(columns=["Debit", "Credit"])
 
-# Filter by Customer Name if provided
+# Filter dataframe by Customer Name
 if customer_name.strip() and "Customer_Name" in df.columns:
     filtered_df = df[df["Customer_Name"].astype(str).str.contains(customer_name, case=False, na=False)]
 else:
     filtered_df = df
 
-# Metrics Calculation
+# Compute Debit, Credit & Running Balance
 total_debit = pd.to_numeric(filtered_df["Debit"], errors="coerce").sum() if "Debit" in filtered_df.columns else 0.0
 total_credit = pd.to_numeric(filtered_df["Credit"], errors="coerce").sum() if "Credit" in filtered_df.columns else 0.0
 running_balance = total_credit - total_debit
 
-# Metrics Row: Total Debit, Total Credit, Balance
+# Place Balance metric next to Account Register dropdown
+with p_col2:
+    st.markdown(f'<div class="metric-box-balance">₹ {running_balance:,.2f}</div>', unsafe_allow_html=True)
+
+# Metrics Row: Total Debit, Total Credit, Net Balance
 m_col1, m_col2, m_col3 = st.columns(3)
 with m_col1:
     st.markdown(f'<div class="metric-box-debit">Total Debit<br>₹ {total_debit:,.2f}</div>', unsafe_allow_html=True)
@@ -115,13 +138,10 @@ with c1:
 with c2:
     entry_date = st.date_input("Date", datetime.now(), label_visibility="collapsed")
 
-# Phone Number Input
+# Phone Number & Description
 phone_number = st.text_input("Phone Number", placeholder="Phone Number", label_visibility="collapsed")
-
-# Description Input
 description = st.text_input("Description", placeholder="Description", label_visibility="collapsed")
 
-# Account/Register Selector Dropdown placed directly where "CASH" was
-p_col1, p_col2 = st.columns([1, 1])
-with p_col1:
-    selected_
+st.write("")
+
+# Amount Debit & Amount Credit
