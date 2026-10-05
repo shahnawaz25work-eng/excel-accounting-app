@@ -145,12 +145,4 @@ for ws_name in all_worksheets:
     except Exception:
         continue
 
-existing_customers = sorted(list(existing_customers_set))
-
-# 5. Customer Selection Dropdown
-customer_options = ["-- Select Existing Customer --", "➕ Create New Customer"] + existing_customers
-selected_customer_option = st.selectbox("Customer Name Dropdown", customer_options, label_visibility="collapsed")
-
-if selected_customer_option == "➕ Create New Customer":
-    customer_name = st.text_input("Enter New Customer Name", placeholder="Type New Customer Name")
-elif selected
+existing_customers = sorted(
