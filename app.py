@@ -69,6 +69,48 @@ def rename_client_in_sheets(old_name, new_name):
             
     return updated_count
 
+def update_client_phone_in_sheets(target_client, phone_num):
+    if not target_client or not phone_num:
+        return 0
+    client = get_gspread_client()
+    spreadsheet = client.open_by_key(SPREADSHEET_ID)
+    worksheets = spreadsheet.worksheets()
+    updated_count = 0
+    
+    for ws in worksheets:
+        try:
+            records = ws.get_all_records()
+            if not records:
+                continue
+            
+            headers = list(records[0].keys()) if records else []
+            customer_col_idx = None
+            phone_col_idx = None
+            
+            for idx, h in enumerate(headers, start=1):
+                norm_h = str(h).strip().lower().replace("_", "").replace(" ", "")
+                if any(k in norm_h for k in ["customer", "name", "client", "ledger", "party"]):
+                    customer_col_idx = idx
+                elif any(k in norm_h for k in ["phone", "mobile", "contact", "number", "cell"]):
+                    phone_col_idx = idx
+            
+            if customer_col_idx and phone_col_idx:
+                cell_list = ws.findall(target_client)
+                cells_to_update = []
+                for cell in cell_list:
+                    if cell.col == customer_col_idx:
+                        p_cell = ws.cell(cell.row, phone_col_idx)
+                        if str(p_cell.value).strip() != str(phone_num).strip():
+                            p_cell.value = str(phone_num).strip()
+                            cells_to_update.append(p_cell)
+                            updated_count += 1
+                if cells_to_update:
+                    ws.update_cells(cells_to_update)
+        except Exception as ex:
+            pass
+            
+    return updated_count
+
 # Configure Streamlit Page Layout
 st.set_page_config(page_title="Accounting Dashboard", layout="centered")
 
@@ -144,6 +186,8 @@ def standardize_df(temp_df, sheet_name):
             col_mapping[col] = "Date"
         elif any(k in norm for k in ["desc", "particulars", "detail", "narration", "remark"]):
             col_mapping[col] = "Description"
+        elif any(k in norm for k in ["phone", "mobile", "contact", "number", "cell"]):
+            col_mapping[col] = "Phone_Number"
             
     std_df = temp_df.rename(columns=col_mapping)
     std_df["Source_Book"] = sheet_name
@@ -159,6 +203,7 @@ if "active_view" not in st.session_state:
 # Build Master Combined Dataset across ALL Registers
 all_standardized_dfs = []
 all_customers_set = set()
+client_phone_map = {}
 
 for ws_name, ws_records in all_sheet_data.items():
     if ws_records:
@@ -169,6 +214,11 @@ for ws_name, ws_records in all_sheet_data.items():
             for n in names:
                 if n and n.lower() not in ["none", "nan", "customer_name", "customer name", "name", "party name", "ledger"]:
                     all_customers_set.add(n)
+                    if "Phone_Number" in std_t_df.columns:
+                        p_val = std_t_df[std_t_df[name_col].astype(str).str.strip() == n]["Phone_Number"].dropna().astype(str).str.strip().tolist()
+                        valid_p = [p for p in p_val if p and p.lower() not in ["none", "nan", "0", ""]]
+                        if valid_p and n not in client_phone_map:
+                            client_phone_map[n] = valid_p[0]
         all_standardized_dfs.append(std_t_df)
 
 master_df = pd.concat(all_standardized_dfs, ignore_index=True) if all_standardized_dfs else pd.DataFrame()
@@ -190,7 +240,7 @@ elif selected_customer_option != "-- Select Existing Customer --":
 else:
     customer_name = ""
 
-# Active Register Data (for saving entries and ledger view)
+# Active Register Data
 sheet_records = all_sheet_data.get(selected_sheet, [])
 current_sheet_df = pd.DataFrame(sheet_records) if sheet_records else pd.DataFrame()
 current_sheet_std_df, _ = standardize_df(current_sheet_df, selected_sheet)
@@ -214,7 +264,7 @@ else:
     combined_debit = 0.0
     combined_credit = 0.0
 
-combined_balance = combined_credit - combined_debit
+combined_balance = combined_debit - combined_credit
 
 # Display Upper Right Combined Balance Box
 with p_col2:
@@ -223,13 +273,16 @@ with p_col2:
 # Main Dashboard Metric Cards (Combined Across ALL Registers)
 m_col1, m_col2, m_col3 = st.columns(3)
 with m_col1:
-    st.markdown(f'<div class="metric-box-debit">Total Combined Debit<br>₹ {combined_debit:,.2f}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-box-debit">Total Amt (Debit)<br>₹ {combined_debit:,.2f}</div>', unsafe_allow_html=True)
 with m_col2:
-    st.markdown(f'<div class="metric-box-credit">Total Combined Credit<br>₹ {combined_credit:,.2f}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-box-credit">Rec. Amt (Credit)<br>₹ {combined_credit:,.2f}</div>', unsafe_allow_html=True)
 with m_col3:
-    st.markdown(f'<div class="metric-box-balance">Combined Balance<br>₹ {combined_balance:,.2f}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-box-balance">Bal. Amt<br>₹ {combined_balance:,.2f}</div>', unsafe_allow_html=True)
 
 st.write("")
+
+# Auto-fill saved phone number if available
+saved_phone = client_phone_map.get(customer_name, "")
 
 # Entry Form Fields
 c1, c2 = st.columns([1, 1])
@@ -238,7 +291,7 @@ with c1:
 with c2:
     entry_date = st.date_input("Date", datetime.now(), label_visibility="collapsed")
 
-phone_number = st.text_input("Phone Number", placeholder="Phone Number", label_visibility="collapsed")
+phone_number = st.text_input("Phone Number", value=saved_phone, placeholder="Phone Number", label_visibility="collapsed")
 description = st.text_input("Description", placeholder="Description", label_visibility="collapsed")
 
 st.write("")
@@ -264,7 +317,7 @@ if st.button("SAVE ENTRY", type="primary", use_container_width=True):
                 entry_date.strftime("%Y-%m-%d"),
                 customer_name.strip(),
                 unique_code,
-                phone_number,
+                phone_number.strip(),
                 selected_sheet,
                 amount_debit,
                 amount_credit,
@@ -273,24 +326,77 @@ if st.button("SAVE ENTRY", type="primary", use_container_width=True):
             spreadsheet = client.open_by_key(SPREADSHEET_ID)
             worksheet = spreadsheet.worksheet(selected_sheet)
             worksheet.append_row(new_entry)
+            
+            # Save phone number across all records if provided
+            if phone_number.strip():
+                update_client_phone_in_sheets(customer_name.strip(), phone_number.strip())
+
             st.cache_data.clear()
             st.success(f"Entry recorded for `{customer_name}` in `{selected_sheet}`!")
             st.rerun()
         except Exception as err:
             st.error(f"Failed to save entry: {err}")
 
+# Build WhatsApp Formatted Statement Text
+def build_whatsapp_statement(c_name, c_debit, c_credit, c_bal, df_trans):
+    today_str = datetime.now().strftime("%d/%m/%Y")
+    lines = [
+        "─────────────",
+        f"Updated : {today_str}",
+        "─────────────",
+        f"Name : {c_name}",
+        "─────────────",
+        f"Total Amt : Rs {c_debit:,.2f}/-",
+        f"Rec. Amt : Rs {c_credit:,.2f}/-",
+        "─────────────",
+        f"Bal. Amt : Rs {c_bal:,.2f}/-",
+        "─────────────",
+        "Credit Statement",
+        "Date | Mode | Amount"
+    ]
+    
+    if not df_trans.empty:
+        # Filter for credit transactions
+        credit_rows = df_trans[pd.to_numeric(df_trans["Credit"], errors="coerce") > 0]
+        if not credit_rows.empty:
+            for _, r in credit_rows.iterrows():
+                dt = str(r.get("Date", "")).strip()
+                mode = str(r.get("Source_Book", "")).replace("_", " ").upper()
+                amt = float(r.get("Credit", 0.0))
+                lines.append(f"{dt} | {mode} | ₹ {amt:,.2f}")
+        else:
+            lines.append("No credit entries found.")
+    else:
+        lines.append("No transactions recorded.")
+        
+    lines.extend([
+        "─────────────",
+        "If there is any mistake or confusion, please let us know.",
+        "Thank you for choosing Green City",
+        "RADEV INFRA PVT. LTD."
+    ])
+    return "\n".join(lines)
+
 # Share Actions
 s_col1, s_col2 = st.columns(2)
 with s_col1:
-    if st.button("Share", use_container_width=True):
-        st.info("Summary copied to clipboard!")
+    if st.button("Share Summary Text", use_container_width=True):
+        wa_text = build_whatsapp_statement(customer_name, combined_debit, combined_credit, combined_balance, customer_master_df)
+        st.code(wa_text, language="text")
+
 with s_col2:
     if st.button("Share To Client", use_container_width=True):
         if phone_number.strip():
-            raw_msg = f"Hello {customer_name}, your total combined balance across all registers is ₹ {combined_balance:,.2f}."
+            # Update phone in Google Sheets if updated in input
+            if phone_number.strip() != saved_phone:
+                update_client_phone_in_sheets(customer_name.strip(), phone_number.strip())
+                st.cache_data.clear()
+
+            raw_msg = build_whatsapp_statement(customer_name, combined_debit, combined_credit, combined_balance, customer_master_df)
             msg = urllib.parse.quote(raw_msg)
-            wa_url = f"https://wa.me/{phone_number.strip()}?text={msg}"
-            wa_link = f"[👉 Send WhatsApp to {phone_number}]({wa_url})"
+            clean_p = "".join(filter(str.isdigit, phone_number.strip()))
+            wa_url = f"https://wa.me/{clean_p}?text={msg}"
+            wa_link = f"[👉 Click Here to Send WhatsApp to {customer_name}]({wa_url})"
             st.markdown(wa_link, unsafe_allow_html=True)
         else:
             st.warning("Please enter a Phone Number to send WhatsApp message.")
@@ -325,9 +431,9 @@ if st.session_state.active_view == "STATEMENT":
 elif st.session_state.active_view == "BALANCE":
     st.subheader(f"💰 Combined Totals for `{customer_name if customer_name else 'All Registers'}`")
     b_col1, b_col2, b_col3 = st.columns(3)
-    b_col1.metric("Grand Debit (All Books)", f"₹ {combined_debit:,.2f}")
-    b_col2.metric("Grand Credit (All Books)", f"₹ {combined_credit:,.2f}")
-    b_col3.metric("Combined Net Balance", f"₹ {combined_balance:,.2f}")
+    b_col1.metric("Total Amt (Debit)", f"₹ {combined_debit:,.2f}")
+    b_col2.metric("Rec. Amt (Credit)", f"₹ {combined_credit:,.2f}")
+    b_col3.metric("Bal. Amt", f"₹ {combined_balance:,.2f}")
 
 elif st.session_state.active_view == "RUNNING_BAL":
     st.subheader("🏦 Current Running Balances (Cash & Bank Accounts Only)")
@@ -360,24 +466,24 @@ elif st.session_state.active_view == "RUNNING_BAL":
         st.info("No cash or bank registers found.")
 
 elif st.session_state.active_view == "EDIT_CLIENT":
-    st.subheader("✏️ Edit / Rename Client Name")
-    st.caption("This will update the client's name across all registers in Google Sheets.")
+    st.subheader("✏️ Edit / Rename Client Name & Contact")
+    st.caption("Update client details across all registers in Google Sheets.")
     
     if all_existing_customers:
         target_client = st.selectbox("Select Client to Edit", all_existing_customers, key="edit_client_select")
         new_client_name = st.text_input("New Client Name", value=target_client, key="edit_client_new_name")
+        curr_p = client_phone_map.get(target_client, "")
+        new_client_phone = st.text_input("Client Phone Number", value=curr_p, key="edit_client_new_phone")
         
-        if st.button("RENAME CLIENT ACROSS ALL REGISTERS", type="primary", use_container_width=True):
-            if not new_client_name.strip():
-                st.error("Please enter a valid new name.")
-            elif target_client.strip().lower() == new_client_name.strip().lower():
-                st.info("New name is identical to existing name.")
-            else:
-                with st.spinner(f"Updating '{target_client}' to '{new_client_name.strip()}' across all sheets..."):
-                    updated_cnt = rename_client_in_sheets(target_client.strip(), new_client_name.strip())
-                    st.cache_data.clear()
-                    st.success(f"Renamed `{target_client}` to `{new_client_name.strip()}` in {updated_cnt} record(s)!")
-                    st.rerun()
+        if st.button("UPDATE CLIENT DETAILS", type="primary", use_container_width=True):
+            with st.spinner("Updating client details..."):
+                if new_client_name.strip() and target_client.strip().lower() != new_client_name.strip().lower():
+                    rename_client_in_sheets(target_client.strip(), new_client_name.strip())
+                if new_client_phone.strip():
+                    update_client_phone_in_sheets(new_client_name.strip() if new_client_name.strip() else target_client.strip(), new_client_phone.strip())
+                st.cache_data.clear()
+                st.success("Client details updated successfully!")
+                st.rerun()
     else:
         st.info("No existing clients found to edit.")
 
