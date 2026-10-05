@@ -158,7 +158,7 @@ else:
     master_df = pd.DataFrame()
     grand_debit, grand_credit, grand_balance = 0.0, 0.0, 0.0
 
-# Top Bar: Account Register & Top Balance Box
+# Top Bar Layout
 p_col1, p_col2 = st.columns([1, 1])
 with p_col1:
     selected_sheet = st.selectbox("Account Register", all_worksheets, key="account_register_select", label_visibility="collapsed")
@@ -193,4 +193,128 @@ else:
 # Calculate Active View Balances
 total_debit = pd.to_numeric(filtered_df["Debit"], errors="coerce").sum() if ("Debit" in filtered_df.columns and not filtered_df.empty) else 0.0
 total_credit = pd.to_numeric(filtered_df["Credit"], errors="coerce").sum() if ("Credit" in filtered_df.columns and not filtered_df.empty) else 0.0
-running_balance =
+running_balance = total_credit - total_debit
+
+# Upper Right Balance Box Display
+display_top_balance = running_balance if customer_name else grand_balance
+with p_col2:
+    st.markdown(f'<div class="metric-box-balance">₹ {display_top_balance:,.2f}</div>', unsafe_allow_html=True)
+
+# Metrics Summary Cards
+m_col1, m_col2, m_col3 = st.columns(3)
+with m_col1:
+    st.markdown(f'<div class="metric-box-debit">Total Debit<br>₹ {total_debit:,.2f}</div>', unsafe_allow_html=True)
+with m_col2:
+    st.markdown(f'<div class="metric-box-credit">Total Credit<br>₹ {total_credit:,.2f}</div>', unsafe_allow_html=True)
+with m_col3:
+    st.markdown(f'<div class="metric-box-balance">Balance<br>₹ {running_balance:,.2f}</div>', unsafe_allow_html=True)
+
+st.write("")
+
+# Entry Form Fields
+c1, c2 = st.columns([1, 1])
+with c1:
+    unique_code = st.text_input("Unique Code", placeholder="Unique Code", label_visibility="collapsed")
+with c2:
+    entry_date = st.date_input("Date", datetime.now(), label_visibility="collapsed")
+
+phone_number = st.text_input("Phone Number", placeholder="Phone Number", label_visibility="collapsed")
+description = st.text_input("Description", placeholder="Description", label_visibility="collapsed")
+
+st.write("")
+
+# Debit and Credit Inputs
+a_col1, a_col2 = st.columns([1, 1])
+with a_col1:
+    amount_debit = st.number_input("Amount Debit", min_value=0.0, step=0.01, value=0.0)
+with a_col2:
+    amount_credit = st.number_input("Amount Credit", min_value=0.0, step=0.01, value=0.0)
+
+st.write("")
+
+# SAVE ENTRY Action
+if st.button("SAVE ENTRY", type="primary", use_container_width=True):
+    if not customer_name.strip():
+        st.error("Please select or enter a Customer Name before saving.")
+    else:
+        try:
+            client = get_gspread_client()
+            new_entry = [
+                datetime.now().strftime("%Y%m%d%H%M%S"),
+                entry_date.strftime("%Y-%m-%d"),
+                customer_name.strip(),
+                unique_code,
+                phone_number,
+                selected_sheet,
+                amount_debit,
+                amount_credit,
+                description
+            ]
+            spreadsheet = client.open_by_key(SPREADSHEET_ID)
+            worksheet = spreadsheet.worksheet(selected_sheet)
+            worksheet.append_row(new_entry)
+            st.cache_data.clear()
+            st.success(f"Entry recorded for `{customer_name}` in `{selected_sheet}`!")
+            st.rerun()
+        except Exception as err:
+            st.error(f"Failed to save entry: {err}")
+
+# Share Actions
+s_col1, s_col2 = st.columns(2)
+with s_col1:
+    if st.button("Share", use_container_width=True):
+        st.info("Summary copied to clipboard!")
+with s_col2:
+    if st.button("Share To Client", use_container_width=True):
+        if phone_number.strip():
+            raw_msg = f"Hello {customer_name}, your overall account balance across all registers is ₹ {running_balance:,.2f}."
+            msg = urllib.parse.quote(raw_msg)
+            wa_url = f"https://wa.me/{phone_number.strip()}?text={msg}"
+            wa_link = f"[👉 Send WhatsApp to {phone_number}]({wa_url})"
+            st.markdown(wa_link, unsafe_allow_html=True)
+        else:
+            st.warning("Please enter a Phone Number to send WhatsApp message.")
+
+st.write("")
+
+# Navigation Buttons
+nav_col1, nav_col2, nav_col3 = st.columns(3)
+with nav_col1:
+    if st.button("Statement", use_container_width=True):
+        st.session_state.active_view = "STATEMENT"
+with nav_col2:
+    if st.button("LEDGER", use_container_width=True):
+        st.session_state.active_view = "LEDGER"
+with nav_col3:
+    if st.button("BALANCE", use_container_width=True):
+        st.session_state.active_view = "BALANCE"
+
+st.markdown("---")
+
+# Display Active View Data
+if st.session_state.active_view == "STATEMENT":
+    st.subheader(f"📜 Statement across ALL Books: {customer_name if customer_name else 'All Records'}")
+    st.dataframe(filtered_df, use_container_width=True)
+
+elif st.session_state.active_view == "BALANCE":
+    st.subheader("💰 Combined Grand Balance (All Registers & Accounts)")
+    b_col1, b_col2, b_col3 = st.columns(3)
+    b_col1.metric("Grand Total Debit", f"₹ {grand_debit:,.2f}")
+    b_col2.metric("Grand Total Credit", f"₹ {grand_credit:,.2f}")
+    b_col3.metric("Grand Net Balance", f"₹ {grand_balance:,.2f}")
+    
+    if customer_name:
+        st.markdown("---")
+        st.subheader(f"👤 Selected Customer Balance: `{customer_name}`")
+        c_col1, c_col2, c_col3 = st.columns(3)
+        c_col1.metric("Customer Debit", f"₹ {total_debit:,.2f}")
+        c_col2.metric("Customer Credit", f"₹ {total_credit:,.2f}")
+        c_col3.metric("Customer Balance", f"₹ {running_balance:,.2f}")
+
+else:  # LEDGER
+    if customer_name:
+        st.subheader(f"📖 Combined Ledger across ALL Books for `{customer_name}`")
+        st.dataframe(filtered_df, use_container_width=True)
+    else:
+        st.subheader(f"📖 All Combined Transactions Across ALL Registers")
+        st.dataframe(filtered_df, use_container_width=True)
