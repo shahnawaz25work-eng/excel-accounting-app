@@ -154,4 +154,23 @@ selected_customer_option = st.selectbox("Customer Name Dropdown", customer_optio
 if selected_customer_option == "➕ Create New Customer":
     customer_name = st.text_input("Enter New Customer Name", placeholder="Type New Customer Name")
 elif selected_customer_option != "-- Select Existing Customer --":
-    customer_name = selected_customer_
+    customer_name = selected_customer_option
+else:
+    customer_name = ""
+
+# 6. Filter Combined Data Across ALL Books
+filtered_records = []
+
+if customer_name:
+    for book_df in all_standardized_dfs:
+        if "Customer_Name" in book_df.columns and not book_df.empty:
+            matched = book_df[book_df["Customer_Name"].astype(str).str.strip().str.lower() == customer_name.strip().lower()]
+            if not matched.empty:
+                filtered_records.append(matched)
+
+if customer_name and filtered_records:
+    filtered_df = pd.concat(filtered_records, ignore_index=True)
+elif customer_name and not filtered_records:
+    filtered_df = pd.DataFrame(columns=["Source_Book", "Date", "Customer_Name", "Debit", "Credit", "Description"])
+else:
+    filtered_df =
