@@ -33,6 +33,42 @@ def load_all_sheet_data():
         st.error(f"Error connecting to Google Sheets: {e}")
         return {}
 
+def rename_client_in_sheets(old_name, new_name):
+    client = get_gspread_client()
+    spreadsheet = client.open_by_key(SPREADSHEET_ID)
+    worksheets = spreadsheet.worksheets()
+    updated_count = 0
+    
+    for ws in worksheets:
+        try:
+            records = ws.get_all_records()
+            if not records:
+                continue
+            
+            headers = list(records[0].keys()) if records else []
+            customer_col_idx = None
+            
+            for idx, h in enumerate(headers, start=1):
+                norm_h = str(h).strip().lower().replace("_", "").replace(" ", "")
+                if any(k in norm_h for k in ["customer", "name", "client", "ledger", "party"]):
+                    customer_col_idx = idx
+                    break
+            
+            if customer_col_idx:
+                cell_list = ws.findall(old_name)
+                cells_to_update = []
+                for cell in cell_list:
+                    if cell.col == customer_col_idx:
+                        cell.value = new_name
+                        cells_to_update.append(cell)
+                        updated_count += 1
+                if cells_to_update:
+                    ws.update_cells(cells_to_update)
+        except Exception as ex:
+            st.warning(f"Could not update in sheet {ws.title}: {ex}")
+            
+    return updated_count
+
 # Configure Streamlit Page Layout
 st.set_page_config(page_title="Accounting Dashboard", layout="centered")
 
@@ -143,7 +179,7 @@ p_col1, p_col2 = st.columns([1, 1])
 with p_col1:
     selected_sheet = st.selectbox("Account Register", all_worksheets, key="account_register_select", label_visibility="collapsed")
 
-# 2. Customer Selection Dropdown (Includes customers from all registers)
+# 2. Customer Selection Dropdown
 customer_options = ["-- Select Existing Customer --", "➕ Create New Customer"] + all_existing_customers
 selected_customer_option = st.selectbox("Customer Name Dropdown", customer_options, label_visibility="collapsed")
 
@@ -154,7 +190,7 @@ elif selected_customer_option != "-- Select Existing Customer --":
 else:
     customer_name = ""
 
-# Filter Active Register Data (Selected Register Only)
+# Filter Active Register Data
 sheet_records = all_sheet_data.get(selected_sheet, [])
 current_sheet_df = pd.DataFrame(sheet_records) if sheet_records else pd.DataFrame()
 current_sheet_std_df, _ = standardize_df(current_sheet_df, selected_sheet)
@@ -170,11 +206,10 @@ if customer_name and not master_df.empty and "Customer_Name" in master_df.column
 else:
     customer_master_df = master_df
 
-# Calculate Selected Register Debit & Credit
+# Calculate Metrics
 total_debit = pd.to_numeric(active_display_df["Debit"], errors="coerce").sum() if ("Debit" in active_display_df.columns and not active_display_df.empty) else 0.0
 total_credit = pd.to_numeric(active_display_df["Credit"], errors="coerce").sum() if ("Credit" in active_display_df.columns and not active_display_df.empty) else 0.0
 
-# Calculate COMBINED Net Balance Across ALL Registers for the Client
 if customer_name and not customer_master_df.empty:
     all_debit = pd.to_numeric(customer_master_df["Debit"], errors="coerce").sum() if "Debit" in customer_master_df.columns else 0.0
     all_credit = pd.to_numeric(customer_master_df["Credit"], errors="coerce").sum() if "Credit" in customer_master_df.columns else 0.0
@@ -182,11 +217,11 @@ if customer_name and not customer_master_df.empty:
 else:
     combined_balance = total_credit - total_debit
 
-# Upper Right Balance Box Display (Combined Balance across all registers)
+# Display Upper Right Balance
 with p_col2:
     st.markdown(f'<div class="metric-box-balance">₹ {combined_balance:,.2f}</div>', unsafe_allow_html=True)
 
-# Metric Cards (Register-specific Debit/Credit, Combined Net Balance across all registers)
+# Main Dashboard Metric Cards
 m_col1, m_col2, m_col3 = st.columns(3)
 with m_col1:
     st.markdown(f'<div class="metric-box-debit">Total Debit ({selected_sheet})<br>₹ {total_debit:,.2f}</div>', unsafe_allow_html=True)
@@ -263,8 +298,8 @@ with s_col2:
 
 st.write("")
 
-# Navigation Buttons
-nav_col1, nav_col2, nav_col3, nav_col4 = st.columns(4)
+# Navigation Buttons (Added EDIT CLIENT Tab)
+nav_col1, nav_col2, nav_col3, nav_col4, nav_col5 = st.columns(5)
 with nav_col1:
     if st.button("Statement", use_container_width=True):
         st.session_state.active_view = "STATEMENT"
@@ -277,6 +312,9 @@ with nav_col3:
 with nav_col4:
     if st.button("RUNNING BAL", use_container_width=True):
         st.session_state.active_view = "RUNNING_BAL"
+with nav_col5:
+    if st.button("EDIT CLIENT", use_container_width=True):
+        st.session_state.active_view = "EDIT_CLIENT"
 
 st.markdown("---")
 
@@ -301,7 +339,6 @@ elif st.session_state.active_view == "RUNNING_BAL":
     
     for ws_name, ws_records in all_sheet_data.items():
         norm_ws = ws_name.lower().replace("_", "").replace(" ", "")
-        # Filter: Exclude sales and purchase registers
         if not any(ex in norm_ws for ex in ["sale", "purchase", "item", "stock"]):
             if ws_records:
                 w_df = pd.DataFrame(ws_records)
@@ -322,6 +359,28 @@ elif st.session_state.active_view == "RUNNING_BAL":
         st.table(pd.DataFrame(cash_bank_summary))
     else:
         st.info("No cash or bank registers found.")
+
+elif st.session_state.active_view == "EDIT_CLIENT":
+    st.subheader("✏️ Edit / Rename Client Name")
+    st.caption("This will update the client's name across all registers in Google Sheets.")
+    
+    if all_existing_customers:
+        target_client = st.selectbox("Select Client to Edit", all_existing_customers, key="edit_client_select")
+        new_client_name = st.text_input("New Client Name", value=target_client, key="edit_client_new_name")
+        
+        if st.button("RENAME CLIENT ACROSS ALL REGISTERS", type="primary", use_container_width=True):
+            if not new_client_name.strip():
+                st.error("Please enter a valid new name.")
+            elif target_client.strip().lower() == new_client_name.strip().lower():
+                st.info("New name is identical to existing name.")
+            else:
+                with st.spinner(f"Updating '{target_client}' to '{new_client_name.strip()}' across all sheets..."):
+                    updated_cnt = rename_client_in_sheets(target_client.strip(), new_client_name.strip())
+                    st.cache_data.clear()
+                    st.success(f"Renamed `{target_client}` to `{new_client_name.strip()}` in {updated_cnt} record(s)!")
+                    st.rerun()
+    else:
+        st.info("No existing clients found to edit.")
 
 else:  # LEDGER
     if customer_name:
