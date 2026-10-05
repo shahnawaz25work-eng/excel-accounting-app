@@ -78,6 +78,10 @@ st.markdown("""
 # Title Header
 st.markdown('<div class="main-title">Welcome Rahmat Sir</div>', unsafe_allow_html=True)
 
+# Helper function to normalize column strings
+def clean_col_str(c):
+    return str(c).strip().lower().replace("_", "").replace(" ", "")
+
 # 1. Fetch Worksheets & Setup Session State
 all_worksheets = [ws.title for ws in spreadsheet.worksheets()]
 if "active_view" not in st.session_state:
@@ -93,10 +97,27 @@ worksheet = spreadsheet.worksheet(selected_sheet)
 raw_records = worksheet.get_all_records()
 df = pd.DataFrame(raw_records) if raw_records else pd.DataFrame()
 
-# Helper function to normalize column strings
-def clean_col_str(c):
-    return str(c).strip().lower().replace("_", "").replace(" ", "")
+# 4. Extract Existing Customer Names across ALL Worksheets
+existing_customers_set = set()
 
+for ws_name in all_worksheets:
+    try:
+        ws_data = spreadsheet.worksheet(ws_name).get_all_records()
+        if ws_data:
+            temp_df = pd.DataFrame(ws_data)
+            for col in temp_df.columns:
+                norm = clean_col_str(col)
+                if any(k in norm for k in ["customer", "name", "client", "ledger", "party"]):
+                    names = temp_df[col].dropna().astype(str).str.strip().unique()
+                    for n in names:
+                        if n and n.lower() not in ["none", "nan", "customer_name", "customer name", "name", "party name", "ledger"]:
+                            existing_customers_set.add(n)
+    except Exception:
+        continue
+
+existing_customers = sorted(list(existing_customers_set))
+
+# Identify columns for active sheet calculations
 customer_col = None
 debit_col = None
 credit_col = None
@@ -104,18 +125,12 @@ credit_col = None
 if not df.empty:
     for col in df.columns:
         norm = clean_col_str(col)
-        if norm in ["customername", "customer", "name", "client"]:
+        if any(k in norm for k in ["customer", "name", "client", "ledger", "party"]):
             customer_col = col
-        elif norm in ["debit", "debits", "amountdebit"]:
+        elif norm in ["debit", "debits", "amountdebit", "dr"]:
             debit_col = col
-        elif norm in ["credit", "credits", "amountcredit"]:
+        elif norm in ["credit", "credits", "amountcredit", "cr"]:
             credit_col = col
-
-# 4. Extract Existing Customer Names safely
-existing_customers = []
-if customer_col and not df.empty:
-    raw_names = df[customer_col].dropna().astype(str).str.strip().unique()
-    existing_customers = sorted([n for n in raw_names if n and n.lower() not in ["none", "nan", "customer_name"]])
 
 # 5. Customer Selection Dropdown
 customer_options = ["-- Select Existing Customer --", "➕ Create New Customer"] + existing_customers
@@ -127,6 +142,10 @@ elif selected_customer_option != "-- Select Existing Customer --":
     customer_name = selected_customer_option
 else:
     customer_name = ""
+
+# Debug Helper (shows if no names were found)
+if not existing_customers:
+    st.warning("⚠️ No customer names found in Google Sheets. Please ensure your sheet has a column named 'Customer Name', 'Party Name', or 'Name'.")
 
 # 6. Filter Data & Calculate Balance
 if customer_name and customer_col:
