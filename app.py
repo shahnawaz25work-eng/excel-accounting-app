@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+import urllib.parse
 import gspread
 
 # Spreadsheet ID from your Google Sheet URL
@@ -18,8 +19,8 @@ def get_gspread_client():
 client = get_gspread_client()
 spreadsheet = client.open_by_key(SPREADSHEET_ID)
 
-# Configure Streamlit Page
-st.set_page_config(page_title="Accounting Software", layout="centered")
+# Configure Streamlit Page Layout
+st.set_page_config(page_title="Accounting Dashboard", layout="centered")
 
 # Custom CSS for UI styling matching the screenshot
 st.markdown("""
@@ -58,7 +59,7 @@ st.markdown("""
         font-weight: bold;
         font-size: 18px;
     }
-    div.stButton > button:first-child {
+    div.stButton > button {
         border-radius: 8px;
         font-weight: bold;
         height: 45px;
@@ -69,24 +70,34 @@ st.markdown("""
 # App Title Header
 st.markdown('<div class="main-title">Welcome Rahmat Sir</div>', unsafe_allow_html=True)
 
-# Select Sheet Register
+# Fetch all available register/account sheets
 all_worksheets = [ws.title for ws in spreadsheet.worksheets()]
-selected_sheet = st.sidebar.selectbox("Select Account / Register", all_worksheets)
-worksheet = spreadsheet.worksheet(selected_sheet)
 
-# Load existing data to compute metrics
-data = worksheet.get_all_records()
-df = pd.DataFrame(data) if data else pd.DataFrame(columns=["Debit", "Credit"])
-
-# Calculate Totals
-total_debit = pd.to_numeric(df["Debit"], errors="coerce").sum() if "Debit" in df.columns else 0.0
-total_credit = pd.to_numeric(df["Credit"], errors="coerce").sum() if "Credit" in df.columns else 0.0
-running_balance = total_credit - total_debit
+# Initialize active view state
+if "active_view" not in st.session_state:
+    st.session_state.active_view = "LEDGER"
 
 # Customer Name Input
 customer_name = st.text_input("Customer Name", placeholder="Customer Name", label_visibility="collapsed")
 
-# Metrics Row 1: Total Debit, Total Credit, Balance
+# Row 1: Select sheet to calculate current register metrics
+default_sheet = all_worksheets[0] if all_worksheets else "Sheet1"
+worksheet = spreadsheet.worksheet(default_sheet)
+data = worksheet.get_all_records()
+df = pd.DataFrame(data) if data else pd.DataFrame(columns=["Debit", "Credit"])
+
+# Filter by Customer Name if provided
+if customer_name.strip() and "Customer_Name" in df.columns:
+    filtered_df = df[df["Customer_Name"].astype(str).str.contains(customer_name, case=False, na=False)]
+else:
+    filtered_df = df
+
+# Metrics Calculation
+total_debit = pd.to_numeric(filtered_df["Debit"], errors="coerce").sum() if "Debit" in filtered_df.columns else 0.0
+total_credit = pd.to_numeric(filtered_df["Credit"], errors="coerce").sum() if "Credit" in filtered_df.columns else 0.0
+running_balance = total_credit - total_debit
+
+# Metrics Row: Total Debit, Total Credit, Balance
 m_col1, m_col2, m_col3 = st.columns(3)
 with m_col1:
     st.markdown(f'<div class="metric-box-debit">Total Debit<br>₹ {total_debit:,.2f}</div>', unsafe_allow_html=True)
@@ -104,64 +115,13 @@ with c1:
 with c2:
     entry_date = st.date_input("Date", datetime.now(), label_visibility="collapsed")
 
-# Phone Number
+# Phone Number Input
 phone_number = st.text_input("Phone Number", placeholder="Phone Number", label_visibility="collapsed")
 
-# Description
+# Description Input
 description = st.text_input("Description", placeholder="Description", label_visibility="collapsed")
 
-# Payment Mode & Current Balance Display Row
+# Account/Register Selector Dropdown placed directly where "CASH" was
 p_col1, p_col2 = st.columns([1, 1])
 with p_col1:
-    payment_mode = st.selectbox("Payment Mode", ["CASH", "BANK", "UPI", "CHEQUE"], label_visibility="collapsed")
-with p_col2:
-    st.markdown(f'<div class="metric-box-balance">₹ {running_balance:,.2f}</div>', unsafe_allow_html=True)
-
-st.write("")
-
-# Amount Debit & Amount Credit Row
-a_col1, a_col2 = st.columns([1, 1])
-with a_col1:
-    amount_debit = st.number_input("Amount Debit", min_value=0.0, step=0.01, placeholder="Amount Debit")
-with a_col2:
-    amount_credit = st.number_input("Amount Credit", min_value=0.0, step=0.01, placeholder="Amount Credit")
-
-st.write("")
-
-# SAVE ENTRY Button
-if st.button("SAVE ENTRY", type="primary", use_container_width=True):
-    new_entry = [
-        datetime.now().strftime("%Y%m%d%H%M%S"),
-        entry_date.strftime("%Y-%m-%d"),
-        customer_name,
-        unique_code,
-        phone_number,
-        payment_mode,
-        amount_debit,
-        amount_credit,
-        description
-    ]
-    worksheet.append_row(new_entry)
-    st.success("Entry saved successfully!")
-    st.rerun()
-
-# Action Buttons: Share & Share To Client
-s_col1, s_col2 = st.columns(2)
-with s_col1:
-    st.button("Share", use_container_width=True)
-with s_col2:
-    st.button("Share To Client", use_container_width=True)
-
-# Navigation Buttons: Statement, LEDGER, BALANCE
-nav_col1, nav_col2, nav_col3 = st.columns(3)
-with nav_col1:
-    st.button("Statement", use_container_width=True)
-with nav_col2:
-    st.button("LEDGER", use_container_width=True)
-with nav_col3:
-    st.button("BALANCE", use_container_width=True)
-
-# Ledger Data Table View
-if not df.empty:
-    st.markdown("### Transaction Records")
-    st.dataframe(df, use_container_width=True)
+    selected_
