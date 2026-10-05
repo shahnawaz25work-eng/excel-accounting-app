@@ -151,9 +151,36 @@ description = st.text_input("Description", placeholder="Description", label_visi
 
 st.write("")
 
-# 7. Amount Inputs (Defined HERE before SAVE ENTRY runs)
+# 7. Amount Inputs
 a_col1, a_col2 = st.columns([1, 1])
 with a_col1:
     amount_debit = st.number_input("Amount Debit", min_value=0.0, step=0.01, value=0.0)
 with a_col2:
-    amount_credit = st.number_input("Amount Credit", min
+    amount_credit = st.number_input("Amount Credit", min_value=0.0, step=0.01, value=0.0)
+
+st.write("")
+
+# 8. SAVE ENTRY Action
+if st.button("SAVE ENTRY", type="primary", use_container_width=True):
+    if not customer_name.strip():
+        st.error("Please select or enter a Customer Name before saving.")
+    else:
+        new_entry = [
+            datetime.now().strftime("%Y%m%d%H%M%S"),
+            entry_date.strftime("%Y-%m-%d"),
+            customer_name.strip(),
+            unique_code,
+            phone_number,
+            selected_sheet,
+            amount_debit,
+            amount_credit,
+            description
+        ]
+        worksheet.append_row(new_entry)
+        st.success(f"Entry recorded for `{customer_name}` in `{selected_sheet}`!")
+        st.rerun()
+
+# 9. Share Actions
+s_col1, s_col2 = st.columns(2)
+with s_col1:
+    if st.button("Share", use_container
