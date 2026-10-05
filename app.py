@@ -168,4 +168,12 @@ if customer_name:
             if not matched.empty:
                 filtered_records.append(matched)
 
-if customer_name and filtered
+if customer_name and filtered_records:
+    filtered_df = pd.concat(filtered_records, ignore_index=True)
+elif customer_name and not filtered_records:
+    filtered_df = pd.DataFrame(columns=["Source_Book", "Date", "Customer_Name", "Debit", "Credit", "Description"])
+else:
+    filtered_df = std_active_df
+
+# Calculate Balances
+total_debit = pd.to_numeric(filtered_df["Debit"], errors="coerce").sum()
