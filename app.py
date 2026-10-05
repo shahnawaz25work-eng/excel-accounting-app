@@ -93,17 +93,35 @@ with p_col1:
         label_visibility="collapsed"
     )
 
-# 3. Load Sheet Data
+# 3. Load Selected Sheet Data
 worksheet = spreadsheet.worksheet(selected_sheet)
 data = worksheet.get_all_records()
-df = pd.DataFrame(data) if data else pd.DataFrame(columns=["Customer_Name", "Debit", "Credit"])
-df.columns = [str(col).strip() for col in df.columns]
+df = pd.DataFrame(data) if data else pd.DataFrame()
 
-# 4. Extract Existing Customer Names for Dropdown
-existing_customers = []
-if "Customer_Name" in df.columns:
-    existing_customers = [str(name).strip() for name in df["Customer_Name"].dropna().unique() if str(name).strip()]
+# Standardize column names (lowercase, no spaces/underscores)
+def normalize_col(c):
+    return str(c).strip().lower().replace("_", "").replace(" ", "")
 
+if not df.empty:
+    df.columns = [str(c).strip() for c in df.columns]
+
+# 4. Extract Existing Customer Names from ALL worksheets
+existing_customers_set = set()
+
+for ws in spreadsheet.worksheets():
+    ws_data = ws.get_all_records()
+    if ws_data:
+        ws_df = pd.DataFrame(ws_data)
+        for col in ws_df.columns:
+            if normalize_col(col) in ["customername", "customer", "name", "client"]:
+                names = ws_df[col].dropna().astype(str).str.strip().tolist()
+                for name in names:
+                    if name and name.lower() not in ["customer_name", "customer name", "none", "nan"]:
+                        existing_customers_set.add(name)
+
+existing_customers = sorted(list(existing_customers_set))
+
+# 5. Customer Selection Dropdown
 customer_options = ["-- Select Existing Customer --", "➕ Create New Customer"] + existing_customers
 selected_customer_option = st.selectbox("Customer Name Dropdown", customer_options, label_visibility="collapsed")
 
@@ -114,14 +132,23 @@ elif selected_customer_option != "-- Select Existing Customer --":
 else:
     customer_name = ""
 
-# 5. Filter Data and Compute Totals
-if customer_name and "Customer_Name" in df.columns:
-    filtered_df = df[df["Customer_Name"].astype(str).str.strip().str.lower() == customer_name.strip().lower()]
+# 6. Filter Selected Worksheet Data and Compute Totals
+customer_col = None
+for col in df.columns:
+    if normalize_col(col) in ["customername", "customer", "name", "client"]:
+        customer_col = col
+        break
+
+if customer_name and customer_col:
+    filtered_df = df[df[customer_col].astype(str).str.strip().str.lower() == customer_name.strip().lower()]
 else:
     filtered_df = df
 
-total_debit = pd.to_numeric(filtered_df["Debit"], errors="coerce").sum() if "Debit" in filtered_df.columns else 0.0
-total_credit = pd.to_numeric(filtered_df["Credit"], errors="coerce").sum() if "Credit" in filtered_df.columns else 0.0
+debit_col = next((c for c in df.columns if normalize_col(c) == "debit"), None)
+credit_col = next((c for c in df.columns if normalize_col(c) == "credit"), None)
+
+total_debit = pd.to_numeric(filtered_df[debit_col], errors="coerce").sum() if debit_col else 0.0
+total_credit = pd.to_numeric(filtered_df[credit_col], errors="coerce").sum() if credit_col else 0.0
 running_balance = total_credit - total_debit
 
 # Place Balance metric next to Account Register dropdown
@@ -139,7 +166,7 @@ with m_col3:
 
 st.write("")
 
-# 6. Additional Entry Form Fields
+# 7. Additional Entry Form Fields
 c1, c2 = st.columns([1, 1])
 with c1:
     unique_code = st.text_input("Unique Code", placeholder="Unique Code", label_visibility="collapsed")
@@ -151,7 +178,7 @@ description = st.text_input("Description", placeholder="Description", label_visi
 
 st.write("")
 
-# 7. Amount Inputs
+# 8. Amount Inputs
 a_col1, a_col2 = st.columns([1, 1])
 with a_col1:
     amount_debit = st.number_input("Amount Debit", min_value=0.0, step=0.01, value=0.0)
@@ -160,7 +187,7 @@ with a_col2:
 
 st.write("")
 
-# 8. SAVE ENTRY Action
+# 9. SAVE ENTRY Action
 if st.button("SAVE ENTRY", type="primary", use_container_width=True):
     if not customer_name.strip():
         st.error("Please select or enter a Customer Name before saving.")
@@ -180,7 +207,7 @@ if st.button("SAVE ENTRY", type="primary", use_container_width=True):
         st.success(f"Entry recorded for `{customer_name}` in `{selected_sheet}`!")
         st.rerun()
 
-# 9. Share Actions
+# 10. Share Actions
 s_col1, s_col2 = st.columns(2)
 with s_col1:
     if st.button("Share", use_container_width=True):
@@ -188,32 +215,4 @@ with s_col1:
 with s_col2:
     if st.button("Share To Client", use_container_width=True):
         if phone_number.strip():
-            msg = urllib.parse.quote(f"Hello {customer_name}, your current account balance is ₹ {running_balance:,.2f}.")
-            wa_url = f"https://wa.me/{phone_number.strip()}?text={msg}"
-            st.markdown(f'[👉 Send WhatsApp to {phone_number}]({wa_url})', unsafe_allow_html=True)
-        else:
-            st.warning("Please enter a Phone Number to send WhatsApp message.")
-
-st.write("")
-
-# 10. Navigation Buttons & Data Tables
-nav_col1, nav_col2, nav_col3 = st.columns(3)
-with nav_col1:
-    if st.button("Statement", use_container_width=True):
-        st.session_state.active_view = "STATEMENT"
-with nav_col2:
-    if st.button("LEDGER", use_container_width=True):
-        st.session_state.active_view = "LEDGER"
-with nav_col3:
-    if st.button("BALANCE", use_container_width=True):
-        st.session_state.active_view = "BALANCE"
-
-st.markdown("---")
-if st.session_state.active_view == "STATEMENT":
-    st.subheader(f"📜 Statement: {customer_name if customer_name else 'All Records'}")
-    st.dataframe(filtered_df, use_container_width=True)
-
-elif st.session_state.active_view == "BALANCE":
-    st.subheader(f"💰 Summary Metrics ({customer_name if customer_name else 'All Accounts'})")
-    b_col1, b_col2, b_col3 = st.columns(3)
-    b_
+            msg = urllib.parse.quote(f"Hello {customer_name}, your current account balance is ₹ {running_balance:,.2f
