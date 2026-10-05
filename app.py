@@ -183,4 +183,37 @@ if st.button("SAVE ENTRY", type="primary", use_container_width=True):
 # 9. Share Actions
 s_col1, s_col2 = st.columns(2)
 with s_col1:
-    if st.button("Share", use_container
+    if st.button("Share", use_container_width=True):
+        st.info("Summary copied to clipboard!")
+with s_col2:
+    if st.button("Share To Client", use_container_width=True):
+        if phone_number.strip():
+            msg = urllib.parse.quote(f"Hello {customer_name}, your current account balance is ₹ {running_balance:,.2f}.")
+            wa_url = f"https://wa.me/{phone_number.strip()}?text={msg}"
+            st.markdown(f'[👉 Send WhatsApp to {phone_number}]({wa_url})', unsafe_allow_html=True)
+        else:
+            st.warning("Please enter a Phone Number to send WhatsApp message.")
+
+st.write("")
+
+# 10. Navigation Buttons & Data Tables
+nav_col1, nav_col2, nav_col3 = st.columns(3)
+with nav_col1:
+    if st.button("Statement", use_container_width=True):
+        st.session_state.active_view = "STATEMENT"
+with nav_col2:
+    if st.button("LEDGER", use_container_width=True):
+        st.session_state.active_view = "LEDGER"
+with nav_col3:
+    if st.button("BALANCE", use_container_width=True):
+        st.session_state.active_view = "BALANCE"
+
+st.markdown("---")
+if st.session_state.active_view == "STATEMENT":
+    st.subheader(f"📜 Statement: {customer_name if customer_name else 'All Records'}")
+    st.dataframe(filtered_df, use_container_width=True)
+
+elif st.session_state.active_view == "BALANCE":
+    st.subheader(f"💰 Summary Metrics ({customer_name if customer_name else 'All Accounts'})")
+    b_col1, b_col2, b_col3 = st.columns(3)
+    b_
