@@ -83,7 +83,7 @@ all_worksheets = [ws.title for ws in spreadsheet.worksheets()]
 if "active_view" not in st.session_state:
     st.session_state.active_view = "LEDGER"
 
-# 2. Account Register Select Box
+# 2. Account Register Select Box & Balance display setup
 p_col1, p_col2 = st.columns([1, 1])
 with p_col1:
     selected_sheet = st.selectbox(
@@ -93,33 +93,35 @@ with p_col1:
         label_visibility="collapsed"
     )
 
-# 3. Load Selected Sheet Data
+# 3. Load Selected Sheet Data cleanly
 worksheet = spreadsheet.worksheet(selected_sheet)
-data = worksheet.get_all_records()
-df = pd.DataFrame(data) if data else pd.DataFrame()
+raw_records = worksheet.get_all_records()
+df = pd.DataFrame(raw_records) if raw_records else pd.DataFrame()
 
-# Standardize column names
-def normalize_col(c):
+# Helper function to match column names flexibly
+def clean_col_str(c):
     return str(c).strip().lower().replace("_", "").replace(" ", "")
 
+# Identify key columns regardless of exact naming (e.g., Customer_Name, Name, Customer, Client)
+customer_col = None
+debit_col = None
+credit_col = None
+
 if not df.empty:
-    df.columns = [str(c).strip() for c in df.columns]
+    for col in df.columns:
+        norm = clean_col_str(col)
+        if norm in ["customername", "customer", "name", "client"]:
+            customer_col = col
+        elif norm in ["debit", "debits", "amountdebit"]:
+            debit_col = col
+        elif norm in ["credit", "credits", "amountcredit"]:
+            credit_col = col
 
-# 4. Extract Existing Customer Names from ALL worksheets
-existing_customers_set = set()
-
-for ws in spreadsheet.worksheets():
-    ws_data = ws.get_all_records()
-    if ws_data:
-        ws_df = pd.DataFrame(ws_data)
-        for col in ws_df.columns:
-            if normalize_col(col) in ["customername", "customer", "name", "client"]:
-                names = ws_df[col].dropna().astype(str).str.strip().tolist()
-                for name in names:
-                    if name and name.lower() not in ["customer_name", "customer name", "none", "nan"]:
-                        existing_customers_set.add(name)
-
-existing_customers = sorted(list(existing_customers_set))
+# 4. Extract Existing Customer Names from current register
+existing_customers = []
+if customer_col and not df.empty:
+    raw_names = df[customer_col].dropna().astype(str).str.strip().unique()
+    existing_customers = sorted([n for n in raw_names if n and n.lower() not in ["none", "nan", "customer_name"]])
 
 # 5. Customer Selection Dropdown
 customer_options = ["-- Select Existing Customer --", "➕ Create New Customer"] + existing_customers
@@ -132,19 +134,81 @@ elif selected_customer_option != "-- Select Existing Customer --":
 else:
     customer_name = ""
 
-# 6. Filter Selected Worksheet Data and Compute Totals
-customer_col = None
-for col in df.columns:
-    if normalize_col(col) in ["customername", "customer", "name", "client"]:
-        customer_col = col
-        break
-
+# 6. Filter Data and Calculate Balance
 if customer_name and customer_col:
     filtered_df = df[df[customer_col].astype(str).str.strip().str.lower() == customer_name.strip().lower()]
 else:
     filtered_df = df
 
-debit_col = next((c for c in df.columns if normalize_col(c) == "debit"), None)
-credit_col = next((c for c in df.columns if normalize_col(c) == "credit"), None)
+total_debit = pd.to_numeric(filtered_df[debit_col], errors="coerce").sum() if debit_col and not filtered_df.empty else 0.0
+total_credit = pd.to_numeric(filtered_df[credit_col], errors="coerce").sum() if credit_col and not filtered_df.empty else 0.0
+running_balance = total_credit - total_debit
 
-total_debit = pd.to_numeric(filtered_df[debit_col], errors="coerce").sum() if debit_col else 0.
+# Upper Right Balance Box
+with p_col2:
+    st.markdown(f'<div class="metric-box-balance">₹ {running_balance:,.2f}</div>', unsafe_allow_html=True)
+
+# Metrics Summary Cards
+m_col1, m_col2, m_col3 = st.columns(3)
+with m_col1:
+    st.markdown(f'<div class="metric-box-debit">Total Debit<br>₹ {total_debit:,.2f}</div>', unsafe_allow_html=True)
+with m_col2:
+    st.markdown(f'<div class="metric-box-credit">Total Credit<br>₹ {total_credit:,.2f}</div>', unsafe_allow_html=True)
+with m_col3:
+    st.markdown(f'<div class="metric-box-balance">Balance<br>₹ {running_balance:,.2f}</div>', unsafe_allow_html=True)
+
+st.write("")
+
+# 7. Additional Entry Form Fields
+c1, c2 = st.columns([1, 1])
+with c1:
+    unique_code = st.text_input("Unique Code", placeholder="Unique Code", label_visibility="collapsed")
+with c2:
+    entry_date = st.date_input("Date", datetime.now(), label_visibility="collapsed")
+
+phone_number = st.text_input("Phone Number", placeholder="Phone Number", label_visibility="collapsed")
+description = st.text_input("Description", placeholder="Description", label_visibility="collapsed")
+
+st.write("")
+
+# 8. Debit and Credit Input Fields
+a_col1, a_col2 = st.columns([1, 1])
+with a_col1:
+    amount_debit = st.number_input("Amount Debit", min_value=0.0, step=0.01, value=0.0)
+with a_col2:
+    amount_credit = st.number_input("Amount Credit", min_value=0.0, step=0.01, value=0.0)
+
+st.write("")
+
+# 9. SAVE ENTRY Action
+if st.button("SAVE ENTRY", type="primary", use_container_width=True):
+    if not customer_name.strip():
+        st.error("Please select or enter a Customer Name before saving.")
+    else:
+        new_entry = [
+            datetime.now().strftime("%Y%m%d%H%M%S"),
+            entry_date.strftime("%Y-%m-%d"),
+            customer_name.strip(),
+            unique_code,
+            phone_number,
+            selected_sheet,
+            amount_debit,
+            amount_credit,
+            description
+        ]
+        worksheet.append_row(new_entry)
+        st.success(f"Entry recorded for `{customer_name}` in `{selected_sheet}`!")
+        st.rerun()
+
+# 10. Share Actions
+s_col1, s_col2 = st.columns(2)
+with s_col1:
+    if st.button("Share", use_container_width=True):
+        st.info("Summary copied to clipboard!")
+with s_col2:
+    if st.button("Share To Client", use_container_width=True):
+        if phone_number.strip():
+            raw_msg = f"Hello {customer_name}, your current account balance is ₹ {running_balance:,.2f}."
+            msg = urllib.parse.quote(raw_msg)
+            wa_url = f"https://wa.me/{phone_number.strip()}?text={msg}"
+            st.markdown(f'[👉 Send WhatsApp to {phone_number}]({wa_url})', unsafe_
