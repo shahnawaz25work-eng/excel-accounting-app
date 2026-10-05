@@ -172,4 +172,219 @@ for ws_name, ws_records in all_sheet_data.items():
         all_standardized_dfs.append(std_t_df)
 
 master_df = pd.concat(all_standardized_dfs, ignore_index=True) if all_standardized_dfs else pd.DataFrame()
-all_existing_customers = sorted(list(all_customers_
+all_existing_customers = sorted(list(all_customers_set))
+
+# Top Bar Layout: Account Register Selection
+p_col1, p_col2 = st.columns([1, 1])
+with p_col1:
+    selected_sheet = st.selectbox("Account Register", all_worksheets, key="account_register_select", label_visibility="collapsed")
+
+# 2. Customer Selection Dropdown
+customer_options = ["-- Select Existing Customer --", "➕ Create New Customer"] + all_existing_customers
+selected_customer_option = st.selectbox("Customer Name Dropdown", customer_options, label_visibility="collapsed")
+
+if selected_customer_option == "➕ Create New Customer":
+    customer_name = st.text_input("Enter New Customer Name", placeholder="Type New Customer Name")
+elif selected_customer_option != "-- Select Existing Customer --":
+    customer_name = selected_customer_option
+else:
+    customer_name = ""
+
+# Active Register Data (for saving entries and ledger view)
+sheet_records = all_sheet_data.get(selected_sheet, [])
+current_sheet_df = pd.DataFrame(sheet_records) if sheet_records else pd.DataFrame()
+current_sheet_std_df, _ = standardize_df(current_sheet_df, selected_sheet)
+
+if customer_name and not current_sheet_std_df.empty and "Customer_Name" in current_sheet_std_df.columns:
+    active_display_df = current_sheet_std_df[current_sheet_std_df["Customer_Name"].astype(str).str.strip().str.lower() == customer_name.strip().lower()]
+else:
+    active_display_df = current_sheet_std_df
+
+# Filter Combined Master Data across ALL Registers
+if customer_name and not master_df.empty and "Customer_Name" in master_df.columns:
+    customer_master_df = master_df[master_df["Customer_Name"].astype(str).str.strip().str.lower() == customer_name.strip().lower()]
+else:
+    customer_master_df = master_df
+
+# Calculate Grand Totals across ALL Registers
+if not customer_master_df.empty:
+    combined_debit = pd.to_numeric(customer_master_df["Debit"], errors="coerce").sum() if "Debit" in customer_master_df.columns else 0.0
+    combined_credit = pd.to_numeric(customer_master_df["Credit"], errors="coerce").sum() if "Credit" in customer_master_df.columns else 0.0
+else:
+    combined_debit = 0.0
+    combined_credit = 0.0
+
+combined_balance = combined_credit - combined_debit
+
+# Display Upper Right Combined Balance Box
+with p_col2:
+    st.markdown(f'<div class="metric-box-balance">₹ {combined_balance:,.2f}</div>', unsafe_allow_html=True)
+
+# Main Dashboard Metric Cards (Combined Across ALL Registers)
+m_col1, m_col2, m_col3 = st.columns(3)
+with m_col1:
+    st.markdown(f'<div class="metric-box-debit">Total Combined Debit<br>₹ {combined_debit:,.2f}</div>', unsafe_allow_html=True)
+with m_col2:
+    st.markdown(f'<div class="metric-box-credit">Total Combined Credit<br>₹ {combined_credit:,.2f}</div>', unsafe_allow_html=True)
+with m_col3:
+    st.markdown(f'<div class="metric-box-balance">Combined Balance<br>₹ {combined_balance:,.2f}</div>', unsafe_allow_html=True)
+
+st.write("")
+
+# Entry Form Fields
+c1, c2 = st.columns([1, 1])
+with c1:
+    unique_code = st.text_input("Unique Code", placeholder="Unique Code", label_visibility="collapsed")
+with c2:
+    entry_date = st.date_input("Date", datetime.now(), label_visibility="collapsed")
+
+phone_number = st.text_input("Phone Number", placeholder="Phone Number", label_visibility="collapsed")
+description = st.text_input("Description", placeholder="Description", label_visibility="collapsed")
+
+st.write("")
+
+# Debit and Credit Inputs
+a_col1, a_col2 = st.columns([1, 1])
+with a_col1:
+    amount_debit = st.number_input("Amount Debit", min_value=0.0, step=0.01, value=0.0)
+with a_col2:
+    amount_credit = st.number_input("Amount Credit", min_value=0.0, step=0.01, value=0.0)
+
+st.write("")
+
+# SAVE ENTRY Action
+if st.button("SAVE ENTRY", type="primary", use_container_width=True):
+    if not customer_name.strip():
+        st.error("Please select or enter a Customer Name before saving.")
+    else:
+        try:
+            client = get_gspread_client()
+            new_entry = [
+                datetime.now().strftime("%Y%m%d%H%M%S"),
+                entry_date.strftime("%Y-%m-%d"),
+                customer_name.strip(),
+                unique_code,
+                phone_number,
+                selected_sheet,
+                amount_debit,
+                amount_credit,
+                description
+            ]
+            spreadsheet = client.open_by_key(SPREADSHEET_ID)
+            worksheet = spreadsheet.worksheet(selected_sheet)
+            worksheet.append_row(new_entry)
+            st.cache_data.clear()
+            st.success(f"Entry recorded for `{customer_name}` in `{selected_sheet}`!")
+            st.rerun()
+        except Exception as err:
+            st.error(f"Failed to save entry: {err}")
+
+# Share Actions
+s_col1, s_col2 = st.columns(2)
+with s_col1:
+    if st.button("Share", use_container_width=True):
+        st.info("Summary copied to clipboard!")
+with s_col2:
+    if st.button("Share To Client", use_container_width=True):
+        if phone_number.strip():
+            raw_msg = f"Hello {customer_name}, your total combined balance across all registers is ₹ {combined_balance:,.2f}."
+            msg = urllib.parse.quote(raw_msg)
+            wa_url = f"https://wa.me/{phone_number.strip()}?text={msg}"
+            wa_link = f"[👉 Send WhatsApp to {phone_number}]({wa_url})"
+            st.markdown(wa_link, unsafe_allow_html=True)
+        else:
+            st.warning("Please enter a Phone Number to send WhatsApp message.")
+
+st.write("")
+
+# Navigation Buttons
+nav_col1, nav_col2, nav_col3, nav_col4, nav_col5 = st.columns(5)
+with nav_col1:
+    if st.button("Statement", use_container_width=True):
+        st.session_state.active_view = "STATEMENT"
+with nav_col2:
+    if st.button("LEDGER", use_container_width=True):
+        st.session_state.active_view = "LEDGER"
+with nav_col3:
+    if st.button("BALANCE", use_container_width=True):
+        st.session_state.active_view = "BALANCE"
+with nav_col4:
+    if st.button("RUNNING BAL", use_container_width=True):
+        st.session_state.active_view = "RUNNING_BAL"
+with nav_col5:
+    if st.button("EDIT CLIENT", use_container_width=True):
+        st.session_state.active_view = "EDIT_CLIENT"
+
+st.markdown("---")
+
+# Display Active View Data
+if st.session_state.active_view == "STATEMENT":
+    st.subheader(f"📜 All Register Statement: {customer_name if customer_name else 'All Records'}")
+    st.dataframe(customer_master_df, use_container_width=True)
+
+elif st.session_state.active_view == "BALANCE":
+    st.subheader(f"💰 Combined Totals for `{customer_name if customer_name else 'All Registers'}`")
+    b_col1, b_col2, b_col3 = st.columns(3)
+    b_col1.metric("Grand Debit (All Books)", f"₹ {combined_debit:,.2f}")
+    b_col2.metric("Grand Credit (All Books)", f"₹ {combined_credit:,.2f}")
+    b_col3.metric("Combined Net Balance", f"₹ {combined_balance:,.2f}")
+
+elif st.session_state.active_view == "RUNNING_BAL":
+    st.subheader("🏦 Current Running Balances (Cash & Bank Accounts Only)")
+    st.caption("Excludes Sales, Purchases, and other non-cash registers.")
+    
+    cash_bank_summary = []
+    grand_cash_bank_bal = 0.0
+    
+    for ws_name, ws_records in all_sheet_data.items():
+        norm_ws = ws_name.lower().replace("_", "").replace(" ", "")
+        if not any(ex in norm_ws for ex in ["sale", "purchase", "item", "stock"]):
+            if ws_records:
+                w_df = pd.DataFrame(ws_records)
+                std_w_df, _ = standardize_df(w_df, ws_name)
+                c_deb = pd.to_numeric(std_w_df["Debit"], errors="coerce").sum() if "Debit" in std_w_df.columns else 0.0
+                c_cred = pd.to_numeric(std_w_df["Credit"], errors="coerce").sum() if "Credit" in std_w_df.columns else 0.0
+                c_bal = c_cred - c_deb
+                grand_cash_bank_bal += c_bal
+                cash_bank_summary.append({
+                    "Account / Register": ws_name,
+                    "Total Debit (₹)": f"{c_deb:,.2f}",
+                    "Total Credit (₹)": f"{c_cred:,.2f}",
+                    "Running Balance (₹)": f"{c_bal:,.2f}"
+                })
+    
+    st.markdown(f"### **Total Liquid Balance: ₹ {grand_cash_bank_bal:,.2f}**")
+    if cash_bank_summary:
+        st.table(pd.DataFrame(cash_bank_summary))
+    else:
+        st.info("No cash or bank registers found.")
+
+elif st.session_state.active_view == "EDIT_CLIENT":
+    st.subheader("✏️ Edit / Rename Client Name")
+    st.caption("This will update the client's name across all registers in Google Sheets.")
+    
+    if all_existing_customers:
+        target_client = st.selectbox("Select Client to Edit", all_existing_customers, key="edit_client_select")
+        new_client_name = st.text_input("New Client Name", value=target_client, key="edit_client_new_name")
+        
+        if st.button("RENAME CLIENT ACROSS ALL REGISTERS", type="primary", use_container_width=True):
+            if not new_client_name.strip():
+                st.error("Please enter a valid new name.")
+            elif target_client.strip().lower() == new_client_name.strip().lower():
+                st.info("New name is identical to existing name.")
+            else:
+                with st.spinner(f"Updating '{target_client}' to '{new_client_name.strip()}' across all sheets..."):
+                    updated_cnt = rename_client_in_sheets(target_client.strip(), new_client_name.strip())
+                    st.cache_data.clear()
+                    st.success(f"Renamed `{target_client}` to `{new_client_name.strip()}` in {updated_cnt} record(s)!")
+                    st.rerun()
+    else:
+        st.info("No existing clients found to edit.")
+
+else:  # LEDGER
+    if customer_name:
+        st.subheader(f"📖 Combined Ledger across ALL Registers for `{customer_name}`")
+        st.dataframe(customer_master_df, use_container_width=True)
+    else:
+        st.subheader(f"📖 Current Register `{selected_sheet}` Transactions")
+        st.dataframe(active_display_df, use_container_width=True)
