@@ -4,7 +4,6 @@ from datetime import datetime
 import urllib.parse
 import gspread
 
-# Spreadsheet ID from your Google Sheet URL
 SPREADSHEET_ID = "1weNOVPKJk4UnCEufm8Sma_eFY5F6iYVKfCReRjORsuc"
 
 @st.cache_resource
@@ -17,7 +16,15 @@ def get_gspread_client():
     return gspread.service_account_from_dict(creds_dict)
 
 client = get_gspread_client()
-spreadsheet = client.open_by_key(SPREADSHEET_ID)
+
+@st.cache_data(ttl=60)
+def load_all_sheet_data():
+    spreadsheet = client.open_by_key(SPREADSHEET_ID)
+    worksheets = spreadsheet.worksheets()
+    data_dict = {}
+    for ws in worksheets:
+        data_dict[ws.title] = ws.get_all_records()
+    return data_dict
 
 # Configure Streamlit Page Layout
 st.set_page_config(page_title="Accounting Dashboard", layout="centered")
@@ -108,8 +115,10 @@ def standardize_df(temp_df, sheet_name):
     std_df["Source_Book"] = sheet_name
     return std_df, name_col_found
 
-# 1. Fetch Worksheets & Setup Session State
-all_worksheets = [ws.title for ws in spreadsheet.worksheets()]
+# 1. Fetch Worksheets & Load Data
+all_sheet_data = load_all_sheet_data()
+all_worksheets = list(all_sheet_data.keys())
+
 if "active_view" not in st.session_state:
     st.session_state.active_view = "LEDGER"
 
@@ -119,8 +128,7 @@ with p_col1:
     selected_sheet = st.selectbox("Account Register", all_worksheets, key="account_register_select", label_visibility="collapsed")
 
 # 3. Load Active Sheet Data
-worksheet = spreadsheet.worksheet(selected_sheet)
-raw_records = worksheet.get_all_records()
+raw_records = all_sheet_data.get(selected_sheet, [])
 active_df = pd.DataFrame(raw_records) if raw_records else pd.DataFrame()
 std_active_df, _ = standardize_df(active_df, selected_sheet)
 
@@ -128,22 +136,18 @@ std_active_df, _ = standardize_df(active_df, selected_sheet)
 existing_customers_set = set()
 all_standardized_dfs = []
 
-for ws_name in all_worksheets:
-    try:
-        ws_data = spreadsheet.worksheet(ws_name).get_all_records()
-        if ws_data:
-            t_df = pd.DataFrame(ws_data)
-            std_t_df, name_col = standardize_df(t_df, ws_name)
-            
-            if name_col in std_t_df.columns:
-                names = std_t_df[name_col].dropna().astype(str).str.strip().unique()
-                for n in names:
-                    if n and n.lower() not in ["none", "nan", "customer_name", "customer name", "name", "party name", "ledger"]:
-                        existing_customers_set.add(n)
-                        
-            all_standardized_dfs.append(std_t_df)
-    except Exception:
-        continue
+for ws_name, ws_records in all_sheet_data.items():
+    if ws_records:
+        t_df = pd.DataFrame(ws_records)
+        std_t_df, name_col = standardize_df(t_df, ws_name)
+        
+        if name_col in std_t_df.columns:
+            names = std_t_df[name_col].dropna().astype(str).str.strip().unique()
+            for n in names:
+                if n and n.lower() not in ["none", "nan", "customer_name", "customer name", "name", "party name", "ledger"]:
+                    existing_customers_set.add(n)
+                    
+        all_standardized_dfs.append(std_t_df)
 
 existing_customers = sorted(list(existing_customers_set))
 
@@ -232,7 +236,10 @@ if st.button("SAVE ENTRY", type="primary", use_container_width=True):
             amount_credit,
             description
         ]
+        spreadsheet = client.open_by_key(SPREADSHEET_ID)
+        worksheet = spreadsheet.worksheet(selected_sheet)
         worksheet.append_row(new_entry)
+        st.cache_data.clear()
         st.success(f"Entry recorded for `{customer_name}` in `{selected_sheet}`!")
         st.rerun()
 
