@@ -138,39 +138,3 @@ for ws_name in all_worksheets:
             if name_col in std_t_df.columns:
                 names = std_t_df[name_col].dropna().astype(str).str.strip().unique()
                 for n in names:
-                    if n and n.lower() not in ["none", "nan", "customer_name", "customer name", "name", "party name", "ledger"]:
-                        existing_customers_set.add(n)
-                        
-            all_standardized_dfs.append(std_t_df)
-    except Exception:
-        continue
-
-existing_customers = sorted(list(existing_customers_set))
-
-# 5. Customer Selection Dropdown
-customer_options = ["-- Select Existing Customer --", "➕ Create New Customer"] + existing_customers
-selected_customer_option = st.selectbox("Customer Name Dropdown", customer_options, label_visibility="collapsed")
-
-if selected_customer_option == "➕ Create New Customer":
-    customer_name = st.text_input("Enter New Customer Name", placeholder="Type New Customer Name")
-elif selected_customer_option != "-- Select Existing Customer --":
-    customer_name = selected_customer_option
-else:
-    customer_name = ""
-
-# 6. Filter Combined Data Across ALL Books
-filtered_records = []
-
-if customer_name:
-    for book_df in all_standardized_dfs:
-        if "Customer_Name" in book_df.columns and not book_df.empty:
-            matched = book_df[book_df["Customer_Name"].astype(str).str.strip().str.lower() == customer_name.strip().lower()]
-            if not matched.empty:
-                filtered_records.append(matched)
-
-if customer_name and filtered_records:
-    filtered_df = pd.concat(filtered_records, ignore_index=True)
-elif customer_name and not filtered_records:
-    filtered_df = pd.DataFrame(columns=["Source_Book", "Date", "Customer_Name", "Debit", "Credit", "Description"])
-else:
-    filtered_df =
