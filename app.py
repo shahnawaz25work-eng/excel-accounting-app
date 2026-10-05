@@ -149,15 +149,4 @@ with m_col1:
 with m_col2:
     st.markdown(f'<div class="metric-box-credit">Total Credit<br>₹ {total_credit:,.2f}</div>', unsafe_allow_html=True)
 with m_col3:
-    st.markdown(f'<div class="metric-box-balance">Balance<br>₹ {running_balance:,.2f}</div>', unsafe_allow_html=True)
-
-st.write("")
-
-# 7. Entry Form Fields
-c1, c2 = st.columns([1, 1])
-with c1:
-    unique_code = st.text_input("Unique Code", placeholder="Unique Code", label_visibility="collapsed")
-with c2:
-    entry_date = st.date_input("Date", datetime.now(), label_visibility="collapsed")
-
-phone_number = st.text_input("Phone Number", placeholder="Phone
+    st.markdown(f'<div class="metric-box-balance">Balance<br
