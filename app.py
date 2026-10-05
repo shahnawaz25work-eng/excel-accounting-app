@@ -59,7 +59,6 @@ st.markdown("""
         font-weight: bold;
         font-size: 18px;
     }
-    /* Primary Green Save Button */
     div.stButton > button[kind="primary"] {
         background-color: #28a745 !important;
         color: white !important;
@@ -68,7 +67,6 @@ st.markdown("""
         height: 48px;
         border: none;
     }
-    /* Secondary Action Buttons */
     div.stButton > button {
         border-radius: 8px;
         font-weight: bold;
@@ -80,17 +78,10 @@ st.markdown("""
 # Title Header
 st.markdown('<div class="main-title">Welcome Rahmat Sir</div>', unsafe_allow_html=True)
 
-# 1. Fetch available worksheets first
+# Fetch available worksheets/registers
 all_worksheets = [ws.title for ws in spreadsheet.worksheets()]
 
-# Initialize state view
-if "active_view" not in st.session_state:
-    st.session_state.active_view = "LEDGER"
-
-# 2. Input Fields
-customer_name = st.text_input("Customer Name", placeholder="Customer Name", label_visibility="collapsed")
-
-# 3. Account Register Select Box (Placed where CASH was in screenshot)
+# Account Register Select Box
 p_col1, p_col2 = st.columns([1, 1])
 with p_col1:
     selected_sheet = st.selectbox(
@@ -103,11 +94,31 @@ with p_col1:
 # Load data from the selected worksheet
 worksheet = spreadsheet.worksheet(selected_sheet)
 data = worksheet.get_all_records()
-df = pd.DataFrame(data) if data else pd.DataFrame(columns=["Debit", "Credit"])
+df = pd.DataFrame(data) if data else pd.DataFrame(columns=["Customer_Name", "Debit", "Credit"])
 
-# Filter dataframe by Customer Name
-if customer_name.strip() and "Customer_Name" in df.columns:
-    filtered_df = df[df["Customer_Name"].astype(str).str.contains(customer_name, case=False, na=False)]
+# Normalize column names in dataframe
+df.columns = [str(col).strip() for col in df.columns]
+
+# Extract existing Customer/Ledger names from data for dropdown
+existing_customers = []
+if "Customer_Name" in df.columns:
+    existing_customers = [str(name).strip() for name in df["Customer_Name"].dropna().unique() if str(name).strip()]
+
+customer_options = ["-- Select Existing Customer --", "➕ Create New Customer"] + existing_customers
+
+# Customer Selection Dropdown
+selected_customer_option = st.selectbox("Customer Name Dropdown", customer_options, label_visibility="collapsed")
+
+if selected_customer_option == "➕ Create New Customer":
+    customer_name = st.text_input("Enter New Customer Name", placeholder="Type New Customer Name")
+elif selected_customer_option != "-- Select Existing Customer --":
+    customer_name = selected_customer_option
+else:
+    customer_name = ""
+
+# Filter records by selected Customer/Ledger Name
+if customer_name and "Customer_Name" in df.columns:
+    filtered_df = df[df["Customer_Name"].astype(str).str.strip().str.lower() == customer_name.strip().lower()]
 else:
     filtered_df = df
 
@@ -116,7 +127,7 @@ total_debit = pd.to_numeric(filtered_df["Debit"], errors="coerce").sum() if "Deb
 total_credit = pd.to_numeric(filtered_df["Credit"], errors="coerce").sum() if "Credit" in filtered_df.columns else 0.0
 running_balance = total_credit - total_debit
 
-# Place Balance metric next to Account Register dropdown
+# Place Balance metric in right column
 with p_col2:
     st.markdown(f'<div class="metric-box-balance">₹ {running_balance:,.2f}</div>', unsafe_allow_html=True)
 
@@ -144,4 +155,9 @@ description = st.text_input("Description", placeholder="Description", label_visi
 
 st.write("")
 
-# Amount Debit & Amount Credit
+# Amount Debit & Amount Credit Row
+a_col1, a_col2 = st.columns([1, 1])
+with a_col1:
+    amount_debit = st.number_input("Amount Debit", min_value=0.0, step=0.01, value=0.0)
+with a_col2:
+    amount_
